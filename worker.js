@@ -74,6 +74,8 @@ async function fetchShareInfoWithFallback(surl, env) {
 
   let lastError = null;
 
+  const debugAttempts = [];
+
   for (const host of uniqueHosts) {
     try {
       const wapUrl = `https://${host}/wap/share/filelist?surl=${targetSurl}`;
@@ -86,19 +88,18 @@ async function fetchShareInfoWithFallback(surl, env) {
         redirect: 'follow'
       });
 
-      if (res.ok) {
-        const html = await res.text();
-        const share = extractShareState(html);
-        if (share && share.shareid) {
-          return { share, activeHost: host };
-        }
+      const html = await res.text();
+      const share = extractShareState(html);
+      if (share && share.shareid) {
+        return { share, activeHost: host };
       }
+      debugAttempts.push(`${host}(${res.status},len:${html.length}):${html.trim().slice(0, 60)}`);
     } catch (err) {
-      lastError = err;
+      debugAttempts.push(`${host}(err):${err.message}`);
     }
   }
 
-  throw lastError || new Error('Could not parse share information from any TeraBox mirror');
+  throw new Error('Attempts: ' + debugAttempts.join(' | '));
 }
 
 // 1. Resolve handler (Supports POST and GET)
