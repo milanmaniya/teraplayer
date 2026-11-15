@@ -68,7 +68,7 @@ async function fetchShareInfoWithFallback(surl, env) {
   const candidateHosts = [primaryHost, 'www.1024tera.com', 'dm.1024terabox.com', 'www.1024terabox.com', 'www.terabox.app'];
   const uniqueHosts = [...new Set(candidateHosts.filter(Boolean))];
 
-  let lastError = null;
+  const debugAttempts = [];
 
   for (const host of uniqueHosts) {
     try {
@@ -83,24 +83,19 @@ async function fetchShareInfoWithFallback(surl, env) {
         redirect: 'follow'
       });
 
-      if (!res.ok) {
-        lastError = new Error(`Host ${host} HTTP ${res.status}`);
-        continue;
-      }
-
       const html = await res.text();
       const data = extractInitialState(html);
       const share = data?.pinia?.share?.shareInfo;
       if (share && share.shareid) {
         return { share, activeHost: host };
       }
-      lastError = new Error(`Host ${host} metadata missing (HTML len: ${html.length})`);
+      debugAttempts.push(`${host}(${res.status}): ${html.trim().slice(0, 100)}`);
     } catch (err) {
-      lastError = err;
+      debugAttempts.push(`${host}(err): ${err.message}`);
     }
   }
 
-  throw lastError || new Error('Failed to parse TeraBox metadata from all mirror hosts');
+  throw new Error('All hosts failed: ' + debugAttempts.join(' | '));
 }
 
 // 1. Resolve handler (Supports POST and GET)
