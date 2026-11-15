@@ -209,8 +209,8 @@ async function handleResolve(request, env) {
       size: primaryFile.size_formatted,
       activeFid: primaryFile.fs_id,
       files,
-      streamUrl: `${origin}/api/m3u8?surl=${encodeURIComponent(surl)}&fid=${primaryFile.fs_id}`,
-      downloadUrl: `${origin}/api/download?surl=${encodeURIComponent(surl)}&fid=${primaryFile.fs_id}`
+      streamUrl: `/api/m3u8?surl=${encodeURIComponent(surl)}&fid=${primaryFile.fs_id}`,
+      downloadUrl: `/api/download?surl=${encodeURIComponent(surl)}&fid=${primaryFile.fs_id}`
     }), {
       status: 200,
       headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' }

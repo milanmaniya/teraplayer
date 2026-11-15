@@ -426,6 +426,24 @@
         currentHls.on(Hls.Events.MANIFEST_PARSED, function () {
           videoPlayer.play().catch(() => {});
         });
+        currentHls.on(Hls.Events.ERROR, function (event, data) {
+          console.warn('HLS event error:', data.type, data.details);
+          if (data.fatal) {
+            switch (data.type) {
+              case Hls.ErrorTypes.NETWORK_ERROR:
+                console.log('Recovering network error...');
+                currentHls.startLoad();
+                break;
+              case Hls.ErrorTypes.MEDIA_ERROR:
+                console.log('Recovering media error...');
+                currentHls.recoverMediaError();
+                break;
+              default:
+                currentHls.destroy();
+                break;
+            }
+          }
+        });
       } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
         videoPlayer.src = streamUrl;
         videoPlayer.addEventListener('loadedmetadata', function () {

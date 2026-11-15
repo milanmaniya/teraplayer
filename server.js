@@ -41,9 +41,16 @@ if (!process.env.TERABOX_HOST) {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+app.enable('trust proxy');
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+function getHostUrl(req) {
+  const forwardedProto = req.headers['x-forwarded-proto'];
+  const proto = forwardedProto || (req.get('host') && req.get('host').includes('localhost') ? 'http' : 'https');
+  return `${proto}://${req.get('host')}`;
+}
 
 // In-memory cache for share sessions (10 minutes)
 const shareCache = new Map();
@@ -152,7 +159,6 @@ app.post('/api/resolve', async (req, res) => {
       return res.status(404).json({ success: false, error: 'No playable video found in this link' });
     }
 
-    const host = `${req.protocol}://${req.get('host')}`;
     const hasNdus = Boolean(process.env.TERABOX_NDUS && process.env.TERABOX_NDUS.length > 5);
 
     res.json({
@@ -164,8 +170,8 @@ app.post('/api/resolve', async (req, res) => {
       activeFid: primaryFile.fs_id,
       files,
       hasNdus,
-      streamUrl: `${host}/api/m3u8?surl=${encodeURIComponent(surl)}&fid=${primaryFile.fs_id}`,
-      downloadUrl: `${host}/api/download?surl=${encodeURIComponent(surl)}&fid=${primaryFile.fs_id}`
+      streamUrl: `/api/m3u8?surl=${encodeURIComponent(surl)}&fid=${primaryFile.fs_id}`,
+      downloadUrl: `/api/download?surl=${encodeURIComponent(surl)}&fid=${primaryFile.fs_id}`
     });
   } catch (err) {
     console.error('Resolve error:', err);
@@ -182,7 +188,7 @@ app.get('/api/m3u8', async (req, res) => {
     }
 
     const share = await getCachedShareInfo(surl);
-    const host = `${req.protocol}://${req.get('host')}`;
+    const host = getHostUrl(req);
     const { playlist } = await getStreamingM3U8(share, fid, host, quality || 'M3U8_AUTO_480');
 
     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
