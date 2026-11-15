@@ -138,20 +138,6 @@
         </button>
       </form>
 
-      <!-- QUICK TEST LINKS -->
-      <div class="mt-4 pt-4 border-t border-gray-800/80 flex flex-wrap items-center gap-2 text-xs">
-        <span class="text-gray-400 font-semibold mr-1"><i class="fas fa-flask mr-1 text-blue-400"></i>Test Links:</span>
-        <button type="button" class="quick-link px-2.5 py-1 bg-gray-800 hover:bg-gray-700 rounded-md text-gray-300 transition" data-url="https://1024terabox.com/s/1TzSXUUsODwn7_GfAoth2UQ">
-          Katrina Colt (43 Min Video)
-        </button>
-        <button type="button" class="quick-link px-2.5 py-1 bg-gray-800 hover:bg-gray-700 rounded-md text-gray-300 transition" data-url="https://teraviralhub.com/video-1728375">
-          TeraViralHub Post 2104
-        </button>
-        <button type="button" class="quick-link px-2.5 py-1 bg-gray-800 hover:bg-gray-700 rounded-md text-gray-300 transition" data-url="https://1024terabox.com/s/1pTtKmeIxFC6GPH8XuOIryQ">
-          TeraBox Elizabeth Skylar
-        </button>
-      </div>
-
       <!-- ERROR MESSAGE -->
       <div id="errorAlert" class="hidden mt-4 p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex items-center space-x-2">
         <i class="fas fa-exclamation-circle text-base"></i>
@@ -290,14 +276,6 @@
       } catch (e) {
         console.error('Clipboard read failed');
       }
-    });
-
-    // Quick test links
-    document.querySelectorAll('.quick-link').forEach(btn => {
-      btn.addEventListener('click', () => {
-        urlInput.value = btn.getAttribute('data-url');
-        resolveForm.dispatchEvent(new Event('submit'));
-      });
     });
 
     // Form submit handler
