@@ -30,6 +30,14 @@ if (fs.existsSync(envPath)) {
   });
 }
 
+// Built-in default NDUS token for zero-setup deployments
+if (!process.env.TERABOX_NDUS) {
+  process.env.TERABOX_NDUS = 'YbbOLXupeHuiW6-qutQMS9aDgf9xNC5JDZDRR-Cu';
+}
+if (!process.env.TERABOX_HOST) {
+  process.env.TERABOX_HOST = 'dm.1024terabox.com';
+}
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
