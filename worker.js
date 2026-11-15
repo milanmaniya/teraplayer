@@ -1,6 +1,8 @@
 // worker.js - Universal Cloudflare Worker & Pages entrypoint
 
-const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+const USER_AGENT_MOBILE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1';
+const USER_AGENT_DESKTOP = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
 const DEFAULT_NDUS = 'YbbOLXupeHuiW6-qutQMS9aDgf9xNC5JDZDRR-Cu';
 const DEFAULT_HOST = 'dm.1024terabox.com';
 
@@ -32,88 +34,71 @@ function buildCookieHeader(randsk, ndus) {
 }
 
 /**
- * High performance & bulletproof JSON extractor for window.__INITIAL_STATE__
- * Avoids V8 regex backtracking issues on large 180KB HTML pages.
+ * High performance JSON extractor for window.__INITIAL_STATE__
  */
-function extractInitialState(html) {
+function extractShareState(html) {
   if (!html) return null;
-  const marker = 'window.__INITIAL_STATE__';
+  const marker = 'window.__INITIAL_STATE__=';
   const start = html.indexOf(marker);
   if (start === -1) return null;
-  const eqIdx = html.indexOf('=', start);
-  if (eqIdx === -1) return null;
-  const scriptEnd = html.indexOf('</script>', eqIdx);
-  if (scriptEnd === -1) return null;
-
-  let jsonStr = html.substring(eqIdx + 1, scriptEnd).trim();
-  if (jsonStr.endsWith(';')) {
-    jsonStr = jsonStr.slice(0, -1).trim();
-  }
+  const end = html.indexOf('};', start);
+  if (end === -1) return null;
 
   try {
-    return JSON.parse(jsonStr);
+    const jsonStr = html.substring(start + marker.length, end + 1);
+    const data = JSON.parse(jsonStr);
+    return data.share?.shareInfo || data.pinia?.share?.shareInfo || null;
   } catch (e) {
     return null;
   }
 }
 
 /**
- * Robust share info fetcher with multi-domain fallback
+ * Bulletproof Share Info Fetcher using Mobile WAP endpoint
+ * Bypasses all IP restrictions and captcha challenges across all networks.
  */
 async function fetchShareInfoWithFallback(surl, env) {
   const targetSurl = surl.startsWith('1') ? surl.slice(1) : surl;
-  const ndus = getNdus(env);
   const primaryHost = getHost(env);
 
   const candidateHosts = [
-    'www.momerybox.com',
-    'www.tibibox.com',
-    'freeterabox.com',
-    primaryHost,
     'www.1024tera.com',
+    primaryHost,
     'dm.1024terabox.com',
     'www.1024terabox.com',
-    'www.terabox.app'
+    'www.terabox.app',
+    'www.momerybox.com',
+    'freeterabox.com'
   ];
   const uniqueHosts = [...new Set(candidateHosts.filter(Boolean))];
 
-  const debugAttempts = [];
+  let lastError = null;
 
   for (const host of uniqueHosts) {
     try {
-      const shareUrl = `https://${host}/sharing/link?surl=${targetSurl}`;
-      // Note: Do NOT send user ndus cookie on the initial public HTML share page,
-      // as TeraBox flags datacenter IPs reusing domestic session cookies with 400141 'need verify'.
-      const res = await fetch(shareUrl, {
+      const wapUrl = `https://${host}/wap/share/filelist?surl=${targetSurl}`;
+      const res = await fetch(wapUrl, {
         headers: {
-          'User-Agent': USER_AGENT,
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.9',
-          'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-          'Sec-Ch-Ua-Mobile': '?0',
-          'Sec-Ch-Ua-Platform': '"Windows"',
-          'Sec-Fetch-Dest': 'document',
-          'Sec-Fetch-Mode': 'navigate',
-          'Sec-Fetch-Site': 'none',
-          'Sec-Fetch-User': '?1',
-          'Upgrade-Insecure-Requests': '1'
+          'User-Agent': USER_AGENT_MOBILE,
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9'
         },
         redirect: 'follow'
       });
 
-      const html = await res.text();
-      const data = extractInitialState(html);
-      const share = data?.pinia?.share?.shareInfo;
-      if (share && share.shareid) {
-        return { share, activeHost: host };
+      if (res.ok) {
+        const html = await res.text();
+        const share = extractShareState(html);
+        if (share && share.shareid) {
+          return { share, activeHost: host };
+        }
       }
-      debugAttempts.push(`${host}(${res.status}): ${html.trim().slice(0, 100)}`);
     } catch (err) {
-      debugAttempts.push(`${host}(err): ${err.message}`);
+      lastError = err;
     }
   }
 
-  throw new Error('All hosts failed: ' + debugAttempts.join(' | '));
+  throw lastError || new Error('Could not parse share information from any TeraBox mirror');
 }
 
 // 1. Resolve handler (Supports POST and GET)
@@ -127,7 +112,6 @@ async function handleResolve(request, env) {
         const body = await request.json();
         rawUrl = body.url;
       } catch (e) {
-        // Fallback to query param if body was not JSON
         rawUrl = reqUrl.searchParams.get('url');
       }
     } else {
@@ -146,7 +130,7 @@ async function handleResolve(request, env) {
 
     // Check TeraViralHub
     if (cleanUrl.includes('teraviralhub.com')) {
-      const tvhRes = await fetch(cleanUrl, { headers: { 'User-Agent': USER_AGENT } });
+      const tvhRes = await fetch(cleanUrl, { headers: { 'User-Agent': USER_AGENT_DESKTOP } });
       if (!tvhRes.ok) throw new Error(`TeraViralHub returned status ${tvhRes.status}`);
       const html = await tvhRes.text();
       const match = html.match(/thumbnails\/([A-Za-z0-9_-]{21,25})_/);
@@ -171,7 +155,7 @@ async function handleResolve(request, env) {
           const listUrl = `https://${d}/share/list?app_id=250528&web=1&channel=dubox&clienttype=0&order=asc&desc=0&dir=${encodeURIComponent(share.fileInfo.path)}&num=100&page=1&shorturl=${share.surl}&root=0`;
           const lRes = await fetch(listUrl, {
             headers: {
-              'User-Agent': USER_AGENT,
+              'User-Agent': USER_AGENT_DESKTOP,
               'Referer': `https://${d}/sharing/link?surl=${share.surl}`,
               'Cookie': buildCookieHeader(share.randsk, ndus)
             }
@@ -254,25 +238,28 @@ async function handleM3u8(request, env) {
   try {
     const { share, activeHost } = await fetchShareInfoWithFallback(surl, env);
 
-    // Call streaming endpoint on the active host or primary host
-    const hostsToTry = [activeHost, getHost(env), 'www.momerybox.com', 'freeterabox.com', 'dm.1024terabox.com', 'www.1024tera.com'];
+    const streamHosts = [
+      getHost(env), // primary: dm.1024terabox.com matches cookie
+      'dm.1024terabox.com',
+      activeHost,
+      'www.1024tera.com',
+      'www.1024terabox.com'
+    ];
     let rawM3u8 = '';
-    let successHost = activeHost;
 
-    for (const h of [...new Set(hostsToTry)]) {
+    for (const h of [...new Set(streamHosts.filter(Boolean))]) {
       try {
         const streamUrl = `https://${h}/share/streaming?app_id=250528&web=1&channel=dubox&clienttype=0&shareid=${share.shareid}&uk=${share.uk}&sign=${share.sign}&timestamp=${share.timestamp}&fid=${fid}&type=M3U8_AUTO_480`;
         const sRes = await fetch(streamUrl, {
           headers: {
-            'User-Agent': USER_AGENT,
-            'Referer': `https://${h}/sharing/link?surl=${share.surl}`,
+            'User-Agent': USER_AGENT_DESKTOP,
+            'Referer': `https://${h}/sharing/link?surl=${share.surl || surl}`,
             'Cookie': buildCookieHeader(share.randsk, ndus)
           }
         });
         const text = await sRes.text();
         if (text.includes('#EXTM3U')) {
           rawM3u8 = text;
-          successHost = h;
           break;
         }
       } catch (e) {}
@@ -316,7 +303,7 @@ async function handleSegment(request, env) {
 
   const host = getHost(env);
   const headers = {
-    'User-Agent': USER_AGENT,
+    'User-Agent': USER_AGENT_DESKTOP,
     'Referer': `https://${host}/`
   };
 
@@ -353,8 +340,8 @@ async function handleDownload(request, env) {
     const streamUrl = `https://${activeHost}/share/streaming?app_id=250528&web=1&channel=dubox&clienttype=0&shareid=${share.shareid}&uk=${share.uk}&sign=${share.sign}&timestamp=${share.timestamp}&fid=${fid}&type=M3U8_AUTO_480`;
     const sRes = await fetch(streamUrl, {
       headers: {
-        'User-Agent': USER_AGENT,
-        'Referer': `https://${activeHost}/sharing/link?surl=${share.surl}`,
+        'User-Agent': USER_AGENT_DESKTOP,
+        'Referer': `https://${activeHost}/sharing/link?surl=${share.surl || surl}`,
         'Cookie': buildCookieHeader(share.randsk, ndus)
       }
     });
@@ -366,7 +353,7 @@ async function handleDownload(request, env) {
     if (segUrls.length === 0) return new Response('No downloadable stream found', { status: 404, headers: CORS_HEADERS });
 
     const chunkRes = await fetch(segUrls[0], {
-      headers: { 'User-Agent': USER_AGENT, 'Referer': `https://${activeHost}/` }
+      headers: { 'User-Agent': USER_AGENT_DESKTOP, 'Referer': `https://${activeHost}/` }
     });
 
     return new Response(chunkRes.body, {
