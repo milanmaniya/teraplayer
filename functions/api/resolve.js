@@ -1,11 +1,28 @@
 // functions/api/resolve.js - Cloudflare Pages Function for /api/resolve
 
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+const DEFAULT_NDUS = 'YbbOLXupeHuiW6-qutQMS9aDgf9xNC5JDZDRR-Cu';
+const DEFAULT_HOST = 'dm.1024terabox.com';
+
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Range'
+};
+
+function getNdus(env) {
+  return env.TERABOX_NDUS || env.ndus || env.NDUS || DEFAULT_NDUS;
+}
+
+function getHost(env) {
+  return env.TERABOX_HOST || env.host || env.HOST || DEFAULT_HOST;
+}
 
 function buildCookieHeader(randsk, ndus) {
   const parts = [];
   if (ndus) {
-    parts.push(`ndus=${ndus.replace(/^ndus=/, '').trim()}`);
+    const clean = ndus.replace(/^ndus=/, '').trim();
+    parts.push(`ndus=${clean}`);
   }
   if (randsk) {
     parts.push(`randsk=${randsk}`);
@@ -14,28 +31,101 @@ function buildCookieHeader(randsk, ndus) {
   return parts.join('; ');
 }
 
-export async function onRequestPost(context) {
-  const { request, env } = context;
+function extractInitialState(html) {
+  if (!html) return null;
+  const marker = 'window.__INITIAL_STATE__';
+  const start = html.indexOf(marker);
+  if (start === -1) return null;
+  const eqIdx = html.indexOf('=', start);
+  if (eqIdx === -1) return null;
+  const scriptEnd = html.indexOf('</script>', eqIdx);
+  if (scriptEnd === -1) return null;
 
-  const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type'
-  };
+  let jsonStr = html.substring(eqIdx + 1, scriptEnd).trim();
+  if (jsonStr.endsWith(';')) jsonStr = jsonStr.slice(0, -1).trim();
 
   try {
-    const { url } = await request.json();
-    if (!url) {
-      return new Response(JSON.stringify({ success: false, error: 'URL required' }), {
+    return JSON.parse(jsonStr);
+  } catch (e) {
+    return null;
+  }
+}
+
+async function fetchShareInfoWithFallback(surl, env) {
+  const targetSurl = surl.startsWith('1') ? surl.slice(1) : surl;
+  const ndus = getNdus(env);
+  const primaryHost = getHost(env);
+
+  const candidateHosts = [primaryHost, 'www.1024tera.com', 'dm.1024terabox.com', 'www.1024terabox.com', 'www.terabox.app'];
+  const uniqueHosts = [...new Set(candidateHosts.filter(Boolean))];
+
+  let lastError = null;
+
+  for (const host of uniqueHosts) {
+    try {
+      const shareUrl = `https://${host}/sharing/link?surl=${targetSurl}`;
+      const res = await fetch(shareUrl, {
+        headers: {
+          'User-Agent': USER_AGENT,
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Cookie': buildCookieHeader(null, ndus)
+        },
+        redirect: 'follow'
+      });
+
+      if (!res.ok) {
+        lastError = new Error(`Host ${host} HTTP ${res.status}`);
+        continue;
+      }
+
+      const html = await res.text();
+      const data = extractInitialState(html);
+      const share = data?.pinia?.share?.shareInfo;
+      if (share && share.shareid) {
+        return { share, activeHost: host };
+      }
+      lastError = new Error(`Metadata missing on ${host}`);
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error('Failed to parse TeraBox metadata from all mirror hosts');
+}
+
+export async function onRequest(context) {
+  const { request, env } = context;
+
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { headers: CORS_HEADERS });
+  }
+
+  try {
+    let rawUrl = '';
+    const reqUrl = new URL(request.url);
+
+    if (request.method === 'POST') {
+      try {
+        const body = await request.json();
+        rawUrl = body.url;
+      } catch (e) {
+        rawUrl = reqUrl.searchParams.get('url');
+      }
+    } else {
+      rawUrl = reqUrl.searchParams.get('url');
+    }
+
+    if (!rawUrl) {
+      return new Response(JSON.stringify({ success: false, error: 'URL is required' }), {
         status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' }
       });
     }
 
-    const cleanUrl = url.trim();
+    const cleanUrl = rawUrl.trim();
     let surl = '';
 
-    // 1. Resolve TeraViralHub URL
     if (cleanUrl.includes('teraviralhub.com')) {
       const tvhRes = await fetch(cleanUrl, { headers: { 'User-Agent': USER_AGENT } });
       const html = await tvhRes.text();
@@ -48,33 +138,14 @@ export async function onRequestPost(context) {
       surl = pMatch ? pMatch[1] : (sMatch ? sMatch[1] : cleanUrl);
     }
 
-    const host = env.TERABOX_HOST || 'dm.1024terabox.com';
-    const ndus = env.TERABOX_NDUS || '';
-
-    // 2. Fetch Share Info
-    const targetSurl = surl.startsWith('1') ? surl.slice(1) : surl;
-    const shareUrl = `https://${host}/sharing/link?surl=${targetSurl}`;
-    const shareRes = await fetch(shareUrl, {
-      headers: {
-        'User-Agent': USER_AGENT,
-        'Cookie': buildCookieHeader(null, ndus)
-      }
-    });
-
-    const html = await shareRes.text();
-    const stateMatch = html.match(/window\.__INITIAL_STATE__\s*=\s*(\{[\s\S]*?\});<\/script>/);
-    if (!stateMatch) throw new Error('Failed to parse TeraBox session metadata');
-
-    const data = JSON.parse(stateMatch[1]);
-    const share = data.pinia?.share?.shareInfo;
-    if (!share || !share.shareid) throw new Error('Share information not found or expired');
+    const ndus = getNdus(env);
+    const { share, activeHost } = await fetchShareInfoWithFallback(surl, env);
 
     let files = [];
     let primaryFile = null;
 
     if (String(share.fileInfo.isdir) === '1') {
-      // Folder handling with fallback
-      const domains = [host, 'www.1024tera.com', 'www.1024terabox.com'];
+      const domains = ['www.1024tera.com', activeHost, 'www.1024terabox.com'];
       for (const d of domains) {
         try {
           const listUrl = `https://${d}/share/list?app_id=250528&web=1&channel=dubox&clienttype=0&order=asc&desc=0&dir=${encodeURIComponent(share.fileInfo.path)}&num=100&page=1&shorturl=${share.surl}&root=0`;
@@ -118,8 +189,11 @@ export async function onRequestPost(context) {
       files = [primaryFile];
     }
 
-    const requestUrl = new URL(request.url);
-    const origin = requestUrl.origin;
+    if (!primaryFile) {
+      throw new Error('No video found in this link');
+    }
+
+    const origin = reqUrl.origin;
 
     return new Response(JSON.stringify({
       success: true,
@@ -132,22 +206,12 @@ export async function onRequestPost(context) {
       downloadUrl: `${origin}/api/download?surl=${encodeURIComponent(surl)}&fid=${primaryFile.fs_id}`
     }), {
       status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' }
     });
   } catch (err) {
     return new Response(JSON.stringify({ success: false, error: err.message || 'Error resolving video' }), {
       status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' }
     });
   }
-}
-
-export async function onRequestOptions() {
-  return new Response(null, {
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type'
-    }
-  });
 }
