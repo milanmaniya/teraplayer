@@ -73,12 +73,21 @@ async function fetchShareInfoWithFallback(surl, env) {
   for (const host of uniqueHosts) {
     try {
       const shareUrl = `https://${host}/sharing/link?surl=${targetSurl}`;
+      // Note: Do NOT send user ndus cookie on the initial public HTML share page,
+      // as TeraBox flags datacenter IPs reusing domestic session cookies with 400141 'need verify'.
       const res = await fetch(shareUrl, {
         headers: {
           'User-Agent': USER_AGENT,
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
           'Accept-Language': 'en-US,en;q=0.9',
-          'Cookie': buildCookieHeader(null, ndus)
+          'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+          'Sec-Ch-Ua-Mobile': '?0',
+          'Sec-Ch-Ua-Platform': '"Windows"',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
+          'Sec-Fetch-User': '?1',
+          'Upgrade-Insecure-Requests': '1'
         },
         redirect: 'follow'
       });
