@@ -65,7 +65,16 @@ async function fetchShareInfoWithFallback(surl, env) {
   const ndus = getNdus(env);
   const primaryHost = getHost(env);
 
-  const candidateHosts = [primaryHost, 'www.1024tera.com', 'dm.1024terabox.com', 'www.1024terabox.com', 'www.terabox.app'];
+  const candidateHosts = [
+    'www.momerybox.com',
+    'www.tibibox.com',
+    'freeterabox.com',
+    primaryHost,
+    'www.1024tera.com',
+    'dm.1024terabox.com',
+    'www.1024terabox.com',
+    'www.terabox.app'
+  ];
   const uniqueHosts = [...new Set(candidateHosts.filter(Boolean))];
 
   const debugAttempts = [];
@@ -246,7 +255,7 @@ async function handleM3u8(request, env) {
     const { share, activeHost } = await fetchShareInfoWithFallback(surl, env);
 
     // Call streaming endpoint on the active host or primary host
-    const hostsToTry = [activeHost, getHost(env), 'dm.1024terabox.com', 'www.1024tera.com'];
+    const hostsToTry = [activeHost, getHost(env), 'www.momerybox.com', 'freeterabox.com', 'dm.1024terabox.com', 'www.1024tera.com'];
     let rawM3u8 = '';
     let successHost = activeHost;
 
