@@ -268,14 +268,26 @@
     let currentHls = null;
     let plyrInstance = null;
 
-    // Paste button handler
+    // Paste button handler - auto pastes & immediately submits to play!
     pasteBtn.addEventListener('click', async () => {
       try {
         const text = await navigator.clipboard.readText();
-        if (text) urlInput.value = text.trim();
+        if (text && text.trim().length > 5) {
+          urlInput.value = text.trim();
+          resolveForm.dispatchEvent(new Event('submit'));
+        }
       } catch (e) {
         console.error('Clipboard read failed');
       }
+    });
+
+    // Auto submit on paste into input (Ctrl+V)
+    urlInput.addEventListener('paste', () => {
+      setTimeout(() => {
+        if (urlInput.value.trim().length > 10) {
+          resolveForm.dispatchEvent(new Event('submit'));
+        }
+      }, 50);
     });
 
     // Form submit handler
@@ -361,6 +373,7 @@
       if (plyrInstance) return;
 
       plyrInstance = new Plyr(videoPlayer, {
+        autoplay: true,
         seekTime: 10, // Exact 10 seconds forward / backward seek!
         controls: [
           'play-large',    // Big center play button
@@ -390,6 +403,18 @@
 
       initPlyr();
 
+      const triggerAutoPlay = () => {
+        const p = plyrInstance ? plyrInstance.play() : videoPlayer.play();
+        if (p !== undefined) {
+          p.catch(() => {
+            // If browser blocks unmuted autoplay, try muted play
+            videoPlayer.muted = true;
+            if (plyrInstance) plyrInstance.play().catch(() => {});
+            else videoPlayer.play().catch(() => {});
+          });
+        }
+      };
+
       if (Hls.isSupported()) {
         currentHls = new Hls({
           enableWorker: true,
@@ -402,7 +427,8 @@
         currentHls.loadSource(streamUrl);
         currentHls.attachMedia(videoPlayer);
         currentHls.on(Hls.Events.MANIFEST_PARSED, function () {
-          videoPlayer.play().catch(() => {});
+          triggerAutoPlay();
+          setTimeout(triggerAutoPlay, 200);
         });
         currentHls.on(Hls.Events.ERROR, function (event, data) {
           console.warn('HLS event error:', data.type, data.details);
@@ -425,7 +451,7 @@
       } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
         videoPlayer.src = streamUrl;
         videoPlayer.addEventListener('loadedmetadata', function () {
-          videoPlayer.play().catch(() => {});
+          triggerAutoPlay();
         });
       }
     }
