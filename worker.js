@@ -83,7 +83,8 @@ async function fetchShareInfoWithFallback(surl, env) {
         headers: {
           'User-Agent': USER_AGENT_MOBILE,
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.9'
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Cookie': buildCookieHeader(null, ndus)
         },
         redirect: 'follow'
       });
