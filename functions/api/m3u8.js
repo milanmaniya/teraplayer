@@ -47,6 +47,7 @@ function extractShareState(html) {
 
 async function fetchShareInfoWithFallback(surl, env) {
   const targetSurl = surl.startsWith('1') ? surl.slice(1) : surl;
+  const ndus = getNdus(env);
   const primaryHost = getHost(env);
 
   const candidateHosts = [
